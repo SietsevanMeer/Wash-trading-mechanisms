@@ -97,6 +97,7 @@ write.csv(Aggregate2, "Aggregate2shortcut.csv", row.names = FALSE)
 One can also skip the complete_edge_v2.csv load, filtering, aggregation and padding by taking the following shortcut.
 ```{r}
 Aggregate2 <- read.csv("Aggregate2shortcut.csv")
+Aggregate2$Date2 <- as.Date(Aggregate2$Date2)
 ``` 
 
 I visualised the wash trading volume over time, this is similar to the wash trading volume found by Aloosh and Li (2019)
@@ -111,16 +112,6 @@ p1<- ggplot(Aggregate2,aes(x=Date2, y=Bitcoins))+geom_line() +  labs(
 
 p2<- p1 + theme(axis.title = element_text(size = 15))
 p2 + theme_classic(base_size = 15)
-ggsave("Wash trading Mt. Gox over time.png")
-
-p1<- ggplot(GOXDF,aes(x=Date, y=LATF))+geom_line() +  labs(
-    title = "Bitcoin wash trading volume on Mt. Gox",
-    subtitle = "Wash trading volume in Bitcoin, 26/06/2011 - 20/05/2013",
-    caption = "Data from the leaked Mt. Gox datafile, see Chen et al. (2019).",
-    x = "Date",
-    y = "Bitcoin"
-  )
-p1
 ``` 
 
 
