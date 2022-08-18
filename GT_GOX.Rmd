@@ -1,0 +1,237 @@
+---
+title: "Daily Google Trends Mt.Gox"
+author: "Sietse"
+date: "1-5-2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this file, I demonstrate how I found the daily Google trends estimates which I used for the Mt.Gox analysis.
+
+First, we load in the necessary libraries.
+```{r}
+library(gtrendsR)
+library(tidyverse)
+library(lubridate)
+```
+
+Now follows the code to estimate the daily Google Trends popularity.
+
+
+Bitcoin popularity for Mt. Gox
+```{r}
+get_daily_gtrend <- function(keyword =('Bitcoin'), geo = '', from = '2011-06-26', to = '2013-05-20') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrend(keyword = c('Bitcoin'), geo = '', from = '2011-06-26', to = '2013-05-19')
+DBitcoinTrendDataslice <- DailyBitcoinTrendData %>% slice(1:695) 
+View(DailyBitcoinTrendData)
+```
+
+```{r}
+write.csv(DailyBitcoinTrendData,"DailyBitcoinTrend.csv", row.names = FALSE)
+DailyBitcoinTrend <- read.csv("DailyBitcoinTrend.csv")
+```
+
+Mt. Gox popularity for Mt. Gox
+```{r}
+get_daily_gtrend <- function(keyword =('Mt. Gox'), geo = '', from = '2011-06-26', to = '2013-05-20') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+ aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+
+DailyGoxTrendData <- get_daily_gtrend(keyword = c('Mt. Gox'), geo = '', from = '2011-06-26', to = '2013-05-20')
+```
+
+```{r}
+write.csv(DailyGoxTrendData,"DailyGoxTrend.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+Cybercrime popularity for Mt. Gox.
+```{r}
+get_daily_gtrend <- function(keyword =('Cybercrime'), geo = '', from = '2011-06-26', to = '2013-05-20') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyWashData <- get_daily_gtrend(keyword = c('Cybercrime'), geo = '', from = '2011-06-26', to = '2013-05-19')
+DCybercrimeDATA <- DailyWashData %>% slice(1:695) 
+View(DCybercrimeDATA)
+```
+
+```{r}
+write.csv(DCybercrimeDATA,"DailyCybercrimeTrend.csv", row.names = FALSE)
+DCryWashDATAtest <- read.csv("DailyCybercrimeTrend.csv")
+view(DCryWashDATAtest)
+```
+

@@ -1,0 +1,236 @@
+---
+title: "prewash_file"
+author: "Sietse"
+date: "6-5-2022"
+output: pdf_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Many of the code in this file is from the "paper plots" file from Victor and Weitraud (2021), see https://github.com/friedhelmvictor/lob-dex-wash-trading-paper
+
+libraries
+```{r}
+library(data.table)
+library(ggplot2)
+library(scales)
+library(RColorBrewer)
+library(ggthemes)
+library(extrafont)
+library(igraph)
+library(sets)
+```
+
+FONT Times New Roman
+```{r}
+options(scipen=999)
+```
+
+
+Choose the folders from which you want to load the data from
+```{r}
+getwd()
+IDEXDir <- "idex-t100-1h-1d-1w-1pmargin/"
+EDDir <- "etherdelta-t100-1h-1d-1w-1pmargin/"
+```
+
+Read trades
+```{r}
+EtherDeltaTrades <- fread(paste0(EDDir, "trades_labeled.csv"))
+EtherDeltaselfTrades <- fread(paste0(EDDir, "self_trades.csv"))
+edMapping <- fread(paste0(EDDir, "scc-mapping.csv"))
+ed_scc_dt <- fread(paste0(EDDir, "scc.csv"))
+ed_scc_dt$DEX <- "EtherDelta"
+
+IDEXTrades <- fread(paste0(IDEXDir, "trades_labeled.csv"))
+IDEXselfTrades <- fread(paste0(IDEXDir, "self_trades.csv"))
+idexMapping <- fread(paste0(IDEXDir, "scc-mapping.csv"))
+idex_scc_dt <- fread(paste0(IDEXDir, "scc.csv"))
+idex_scc_dt$DEX <- "IDEX"
+
+output_folder <- "plots/"
+```
+
+
+Theme publication
+```{r}
+theme_Publication <- function(base_size=14, base_family="Times New Roman") {
+  library(grid)
+  library(ggthemes)
+  library(extrafont)
+  (theme_foundation(base_size=base_size, base_family=base_family)
+    + theme(plot.title = element_text(
+      size = rel(1.2), hjust = 0.5),
+      text = element_text(),
+      panel.background = element_rect(colour = "black"),
+      plot.background = element_rect(colour = NA),
+      panel.border = element_rect(colour = NA),
+      axis.title = element_text(size = rel(1)),
+      axis.title.y = element_text(angle=90,vjust =2),
+      axis.title.x = element_text(vjust = -0.2),
+      axis.text = element_text(), 
+      axis.line = element_line(colour="black"),
+      axis.ticks = element_line(),
+      panel.grid.major = element_line(colour="#f0f0f0"),
+      panel.grid.minor = element_blank(),
+      legend.key = element_rect(colour = NA),
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.key.size= unit(1, "cm"),
+      legend.title = element_text(face="italic"),
+      plot.margin=unit(c(10,5,5,5),"mm"),
+      strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0"),
+      strip.text = element_text(size = 14)
+    ))
+}
+```
+
+PLOT WASH TRADING STRUCTURES
+```{r}
+result <- list()
+```
+
+```{r}
+IDEXSCChashes <- idex_scc_dt[occurrence > threshold]$scc_hash
+IDEXSCCsWithWashTrading <- 0
+IDEXSCCTokensWashed <- c()
+
+for (SCChash in IDEXSCChashes) {
+  trades <- IDEXTrades[eth_seller_id %in% idexMapping[hash == SCChash]$trader_id &
+                         eth_buyer_id %in% idexMapping[hash == SCChash]$trader_id &
+                         wash_label == T, list(eth_seller_id, eth_buyer_id, token)]
+  if(nrow(trades) > 0) {
+    IDEXSCCsWithWashTrading <- IDEXSCCsWithWashTrading + 1
+    IDEXSCCTokensWashed <- c(IDEXSCCTokensWashed, length(unique(trades$token)))
+  }
+  new_g <- simplify(graph_from_data_frame(trades), remove.loops = F)
+  
+  listLength <- length(result)
+  exists <- FALSE
+  if(listLength > 0) {
+    for (i in 1:listLength) {
+      existing_g <- result[[i]][[1]]
+      if(isomorphic(existing_g, new_g)) {
+        result[[i]] <- sets::tuple(new_g, result[[i]][[2]]+1, result[[i]][[3]])
+        exists <- TRUE
+        break
+      }
+    }
+  }
+  if(!exists & vcount(new_g) > 0) {
+    result[[listLength + 1]] <- sets::tuple(new_g, 1, 0)
+  }
+}
+
+EtherDeltaSCChashes <- ed_scc_dt[occurrence > threshold]$scc_hash
+EDSCCsWithWashTrading <- 0
+EDSCCTokensWashed <- c()
+for (SCChash in EtherDeltaSCChashes) {
+  trades <- EtherDeltaTrades[eth_seller_id %in% edMapping[hash == SCChash]$trader_id &
+                               eth_buyer_id %in% edMapping[hash == SCChash]$trader_id &
+                               wash_label == T, list(eth_seller_id, eth_buyer_id, token)]
+  if(nrow(trades) > 0) {
+    EDSCCsWithWashTrading <- EDSCCsWithWashTrading + 1
+    EDSCCTokensWashed <- c(EDSCCTokensWashed, length(unique(trades$token)))
+  }
+  new_g <- simplify(graph_from_data_frame(trades), remove.loops = F)
+  
+  listLength <- length(result)
+  exists <- FALSE
+  if(listLength > 0) {
+    for (i in 1:listLength) {
+      existing_g <- result[[i]][[1]]
+      if(isomorphic(existing_g, new_g)) {
+        result[[i]] <- sets::tuple(new_g, result[[i]][[2]], result[[i]][[3]]+1)
+        exists <- TRUE
+        break
+      }
+    }
+  }
+  if(!exists & vcount(new_g) > 0) {
+    result[[listLength + 1]] <- sets::tuple(new_g, 0, 1)
+  }
+}
+
+countSelfTradersIdex <- length(unique(IDEXselfTrades$eth_seller))
+countSelfTradersEtherDelta <- length(unique(EtherDeltaselfTrades$eth_seller))
+
+result[[listLength+1]] <- sets::tuple(graph_from_data_frame(data.frame(from=c(1), to=c(1))),
+                                      countSelfTradersIdex, countSelfTradersEtherDelta)
+result <- result[order(sapply(result, function(x) vcount(x[[1]])), sapply(result, function(x) ecount(x[[1]])))]
+
+for (i in 1:length(result)) {
+  x <- result[[i]]
+  graph <- x[[1]]
+  cairo_pdf(paste0(output_folder,"graph_",c(letters,"zz")[i],"_plot.pdf"), 100, 100)
+  plot(graph, vertex.size = 25, edge.color = "black", vertex.label = NA, frame = T,
+       layout=layout.circle, edge.curved = 0.25, edge.width = 50,
+       edge.arrow.size=30, margin=c(0,0.15,0.3,0.15)) +
+    title(paste0(c(letters,"zz")[i], ") IDEX: ",x[[2]], "\tED: ",x[[3]]), cex.main=56,
+          family="Times New Roman", line = -50)
+  dev.off()
+}
+```
+
+MONTHLY WASH TRADING VOLUME
+```{r}
+wash_share_idex <- rbind(IDEXselfTrades[, list(token, trade_amount_dollar, date, wash_label = T)],
+                         IDEXTrades[, list(token, trade_amount_dollar, date, wash_label)])
+wash_share_idex$DEX <- "IDEX"
+
+wash_share_ed <- rbind(EtherDeltaselfTrades[, list(token, trade_amount_dollar, date, wash_label = T)],
+                       EtherDeltaTrades[, list(token, trade_amount_dollar, date, wash_label)])
+wash_share_ed$DEX <- "EtherDelta"
+wash_share <- rbind(wash_share_idex, wash_share_ed)
+monthly_wash_volume <- wash_share[wash_label == T, list(monthly_wash_volume = sum(trade_amount_dollar)),
+                                  by=list(month = as.Date(cut(as.Date(date), "1 month")), DEX)]
+monthly_wash_volume$DEX_f <- factor(monthly_wash_volume$DEX, levels = c("IDEX", "EtherDelta"))
+ggplot(monthly_wash_volume) +
+  geom_bar(aes(x=month, y=monthly_wash_volume), stat="identity", fill="black", color="white") +
+  scale_x_date(labels = date_format("%Y-%m")) +
+  scale_y_continuous(labels = scales::comma) +
+  facet_grid(DEX_f ~ ., scales = "free_y") + 
+  labs(x="Month", y="Wash trade volume in U.S. Dollars") + 
+  theme_Publication()
+ggsave(filename = paste0(output_folder, "monthly_wash_vol.pdf"), width = 6, height = 4, device=cairo_pdf)
+```
+
+DAILY WASH TRADING VOLUME
+```{r}
+wash_share_idex <- rbind(IDEXselfTrades[, list(token, trade_amount_dollar, date, wash_label = T)],
+                         IDEXTrades[, list(token, trade_amount_dollar, date, wash_label)])
+wash_share_idex$DEX <- "IDEX"
+
+wash_share_ed <- rbind(EtherDeltaselfTrades[, list(token, trade_amount_dollar, date, wash_label = T)],
+                       EtherDeltaTrades[, list(token, trade_amount_dollar, date, wash_label)])
+
+wash_share_ed$DEX <- "EtherDelta"
+wash_share <- rbind(wash_share_idex, wash_share_ed)
+daily_wash_volume <- wash_share[wash_label == T, list(daily_wash_volume = sum(trade_amount_dollar)),
+                                  by=list(day = as.Date(cut(as.Date(date), "1 day")), DEX)]
+daily_wash_volume$DEX_f <- factor(daily_wash_volume$DEX, levels = c("IDEX", "EtherDelta"))
+ggplot(daily_wash_volume) +
+  geom_bar(aes(x=day, y=daily_wash_volume), stat="identity", fill="black", color="black") +
+  scale_x_date(labels = date_format("%Y-%d")) +
+  scale_y_continuous(labels = scales::comma) +
+  facet_grid(DEX_f ~ ., scales = "free_y") + 
+  labs(x="day", y="Wash trade volume in U.S. Dollars") + 
+  theme_Publication()
+```
+
+IDEX DATAFRAME = 2017-10-16 - 2020-04-26
+```{r}
+IDEX_WTvolume <- wash_share_idex[wash_label == T, list(daily_wash_volume = sum(trade_amount_dollar)),
+                                  by=list(day = as.Date(cut(as.Date(date), "1 day")), DEX)]
+write.csv(IDEX_WTvolume,"C:/Users/chess/Documents/Thesis_master/IDEX_WTvolume.csv", row.names = FALSE)
+```
+
+EtherDelta dataframe = 2017-02-10 - 2019-05-18
+```{r}
+ED_WTvolume <- wash_share_ed[wash_label == T, list(daily_wash_volume = sum(trade_amount_dollar)),
+                                  by=list(day = as.Date(cut(as.Date(date), "1 day")), DEX)]
+write.csv(ED_WTvolume,"C:/Users/chess/Documents/Thesis_master/ED_WTvolume.csv", row.names = FALSE)
+```
+
+

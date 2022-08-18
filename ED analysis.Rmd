@@ -1,0 +1,456 @@
+---
+title: "Regression analysis IDEX and ED"
+author: "Sietse"
+date: "12-5-2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#1. Libraries
+
+First, we load in the libraries needed for this project.
+
+```{r}
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(data.table)
+library(qqplotr)
+library(VARtests)
+library(tidyr)
+library(remotes)
+library(het.test)
+library(TSA)
+library(lmtest)
+library(padr)
+library(sandwich)
+library(xtable)
+library(knitr)
+library(vars)
+library(Hmisc)
+library(car)
+library(psych)
+library(pander)
+library(ggpubr)
+library(tidyverse)
+library(cowplot)
+library(gridExtra)
+library(stargazer)
+library(tseries)
+library(urca)
+library(ggthemes)
+library(bruceR)
+library(olsrr)
+library(forecast)
+library(deSolve)
+library(tsDyn)
+library(apaTables)
+```
+
+
+#2. Data
+
+Let us load in the daily wash trading volume.
+For this, one needs the "ED_WTvolume.csv" which I made earlier in the prewash_file.
+
+
+EtherDelta (2017-02-10 : 2020-05-02)
+```{r}
+ED_WTvolume <- read.csv("ED_WTvolume.csv")
+ED_WTvolume$Date <- as.Date(ED_WTvolume$day)
+ED_WTvolume2 <- pad(ED_WTvolume)
+ED_WTvolume3 <- subset(ED_WTvolume2, select = -c(day,DEX))
+ED_WTvolume3[is.na(ED_WTvolume3)] <- 0
+```
+
+
+Then, we can load in the data regarding the explanatory variables (mechanisms)
+
+I start of with the average gas fee, representing the transaction fees mechanism.
+
+```{r}
+AverageGasPriceED <- read.csv("AverageGasPrice.csv")
+AverageGasPED <- subset(AverageGasPriceED, select = -c(UnixTimeStamp,Date.UTC.))
+AverageGasPRICEED <- AverageGasPED %>% slice(562:1739)
+```
+
+
+Now let us load in the data for the explanatory variables which represent the hiding mechanism.
+All three datasets are Google Trends proxies. One can replicate the csv files using the GT_prep file.
+
+Regarding the variables:
+EDED trend is EtherDelta popularity.
+EDCYpoptrend is the cybercrime popularity.
+EDWTtrend is the wash trading popularity.
+
+```{r}
+getwd()
+EDEDtrend <- read.csv("DailyTrendEDslice.csv")
+
+EDCypoptrend <- read.csv("DailyTrendEDCypopslice.csv")
+                        
+EDWTtrend <- read.csv("DailyTrendEDWTslice.csv")
+
+```
+
+
+Finally, let us load in the data for the explanatory variables which represent the sentiment mechanism. 
+
+Regarding the variables:
+EDETHtrend stands for Ethereum popularity.
+EthertradvolED stands for Ethereum trading volume.
+
+Ethereum popularity
+```{r}
+EDETHtrend <- read.csv("DailyTrendEDETHslice.csv")
+```
+
+
+Ethereum trading volume
+```{r}
+EthertradvolED <- read.csv("EthereumpriceED.csv")
+
+
+EthertradvolED$Vol. <- dplyr::case_when(
+  stringr::str_detect(EthertradvolED$Vol., 'M') ~ readr::parse_number(EthertradvolED$Vol.) * 1e6,
+  stringr::str_detect(EthertradvolED$Vol., 'K') ~ readr::parse_number(EthertradvolED$Vol.) * 1e3,
+  TRUE ~ parse_number(EthertradvolED$Vol.)
+)
+colnames(EthertradvolED)[1] <- gsub('^...','',colnames(EthertradvolED)[1])
+EthertradvolED$Date <- mdy(EthertradvolED$Date)
+EthertradvolED$Volume <- EthertradvolED$Vol.
+ETHTVOL <-subset(EthertradvolED, select = -c(Price,Open, High, Vol., Low, Change..))
+ETHTVOLLL<- na.locf(ETHTVOL, fromLast = TRUE)
+ggplot(EthertradvolED,aes(x=Date, y= Vol.)) + geom_line()
+```
+
+
+
+
+We can now combine the wash trading volumes and the explanatory variables in one large dataset.
+Note that I also make a LOGED file, in which I put the power-transformed variables, such that they are ready for linear regression analyses.
+
+```{r}
+ED <- ED_WTvolume3
+names(ED)[names(ED) == "daily_wash_volume"] <- "WT"
+
+ED$Date <-as.Date(ED$Date)
+ED$AGas <- AverageGasPRICEED$Value..Wei.
+
+ED$TRENDED <- EDEDtrend$est_hits
+ED$CYPOP <- EDCypoptrend$est_hits
+ED$TRENDWT <- EDWTtrend$est_hits
+
+
+ED$TRENDETH <- EDETHtrend$est_hits
+ED$TRADVOL <- ETHTVOLLL$Volume
+
+LWT <- log(ED$WT + 1)
+LAgas <- log(ED$AGas + 1)
+LEDpop <- log(ED$TRENDED + 1)
+LCypop <- log(ED$CYPOP + 1)
+LWTpop <- log(ED$TRENDWT + 1)
+LETHpop <- log(ED$TRENDETH + 1)
+LETHvol <- log(ED$TRADVOL+ 1)
+
+LOGED = data.frame(LWT=LWT,LAgas=LAgas,LEDpop=LEDpop, LCypop=LCypop, LWTpop=LWTpop, LETHvol=LETHvol)
+
+EDCOR <- subset(ED, select = -c(Date))
+```
+
+
+
+
+
+
+
+#3. Analysis
+Now we can perform the analyses. First, we start with the correlation analysis, then the multiple linear regressions, and finally the VAR model.
+
+The correlation analysis:
+
+```{r}
+cor.test(EDCOR$TRADVOL, EDCOR$CYPOP, 
+                    method = "pearson")
+mcorGOX<-round(cor(EDCOR, method = "kendall"),2)
+upperGOX<-mcorGOX
+upperGOX[upper.tri(mcorGOX)]<-""
+upperGOX<-as.data.frame(upperGOX)
+upperGOX
+print(xtable(upperGOX), type="latex")
+```
+
+
+
+The multiple regression analysis section contains quite some code. Mainly because I also made regressions including lagged variables.
+
+I start with the six regressions without lag:
+
+```{r}
+
+Reg1 <- lm(ED$WT~ED$AGas+ED$TRENDED+ED$TRENDETH)
+
+Reg2 <- lm(ED$WT~ED$AGas+ED$TRENDED+ED$TRADVOL)
+
+Reg3 <- lm(ED$WT~ED$AGas+ED$CYPOP+ED$TRENDETH)
+
+Reg4 <- lm(ED$WT~ED$AGas+ED$CYPOP+ED$TRADVOL)
+
+Reg5 <- lm(ED$WT~ED$AGas+ED$TRENDWT+ED$TRENDETH)
+
+Reg6 <- lm(ED$WT~ED$AGas+ED$TRENDWT+ED$TRADVOL)
+
+stargazer(Reg1, Reg2, Reg3, Reg4, Reg5, Reg6, type = "text")
+
+par(mfrow = c(2,2))
+plot(Reg2)
+
+```
+
+I find that the linear regression model contains extreme values, heteroskedasticity, non-linearity and non-normality. Therefore, I power-transformed the variables. I will use the log variables in the further regressions.
+
+```{r}
+LReg1 <- lm(LWT~LAgas+LEDpop+LETHpop, data = LOGED)
+
+LReg2 <- lm(LWT~LAgas+LEDpop+LETHvol, data = LOGED)
+
+LReg3 <- lm(LWT~LAgas+LCypop+LETHpop, data = LOGED)
+
+LReg4 <- lm(LWT~LAgas+LCypop+LETHvol, data = LOGED)
+
+LReg5 <- lm(LWT~LAgas+LWTpop+LETHpop, data = LOGED)
+
+LReg6 <- lm(LWT~LAgas+LWTpop+LETHvol, data = LOGED)
+```
+
+Some diagnostic tests again to see if linearity, heteroskedasticity, normality of the residuals, and autocorrelation improved. Also I checked the model fit.
+
+```{r}
+par(mfrow = c(2,2))
+plot(LReg2)
+dwtest(Lreg2)
+summary(Lreg2)
+```
+
+
+To deal with heteroskedasticity and autocorrelation, one can use the heteroskedastic and autocorrelation consistent error terms
+```{r}
+#HAC standard errors
+LReg1HAC <- coeftest(LReg1, vcov = vcovHAC(LReg1))
+LReg2HAC <- coeftest(LReg2, vcov = vcovHAC(LReg2))
+LReg3HAC <- coeftest(LReg3, vcov = vcovHAC(LReg3))
+LReg4HAC <- coeftest(LReg4, vcov = vcovHAC(LReg4))
+LReg5HAC <- coeftest(LReg5, vcov = vcovHAC(LReg5))
+LReg6HAC <- coeftest(LReg6, vcov = vcovHAC(LReg6))
+
+stargazer(LReg1HAC, LReg2HAC, LReg3HAC, LReg4HAC, LReg5HAC, LReg6HAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/ED4regNOLAG.tex")
+```
+
+
+Now I will make six similar regressions, but in these regressions, the explanatory variable is lagged by one period.
+
+First, I lag the variables.
+```{r}
+LOGED1<- LOGED %>% dplyr::mutate(LLAgas = dplyr::lag(LAgas, n=1, default = NA)) %>% as.data.frame
+
+LOGED2<- LOGED1 %>% dplyr::mutate(LLEDpop = dplyr::lag(LEDpop, n=1, default = NA)) %>% as.data.frame
+
+LOGED3<- LOGED2 %>% dplyr::mutate(LLCypop = dplyr::lag(LCypop, n=1, default = NA)) %>% as.data.frame
+
+LOGED4<- LOGED3 %>% dplyr::mutate(LLWTpop = dplyr::lag(LWTpop, n=1, default = NA)) %>% as.data.frame
+
+LOGED5<- LOGED4 %>% dplyr::mutate(LLETHpop = dplyr::lag(LETHpop, n=1, default = NA)) %>% as.data.frame
+
+LOGED6<- LOGED5 %>% dplyr::mutate(LLETHvol = dplyr::lag(LETHvol, n=1, default = NA)) %>% as.data.frame
+
+
+LagED <- LOGED6 %>% slice(2:695)
+```
+
+Then we make new regressions with explanatory variables which are lagged one period (one day).
+```{r}
+
+Reg1LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLEDpop+LagED$LLETHpop)
+
+Reg2LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLEDpop+LagED$LLETHvol)
+
+Reg3LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLCypop+LagED$LLETHpop)
+
+Reg4LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLCypop+LagED$LLETHvol)
+
+Reg5LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLWTpop+LagED$LLETHpop)
+
+Reg6LAG <- lm(LagED$LWT~LagED$LLAgas+LagED$LLWTpop+LagED$LLETHvol)
+
+#HAC
+Reg1LHAC <- coeftest(Reg1LAG, vcov = vcovHAC(Reg1LAG))
+Reg2LHAC <- coeftest(Reg2LAG, vcov = vcovHAC(Reg2LAG))
+Reg3LHAC <- coeftest(Reg3LAG, vcov = vcovHAC(Reg3LAG))
+Reg4LHAC <- coeftest(Reg4LAG, vcov = vcovHAC(Reg4LAG))
+Reg5LHAC <- coeftest(Reg5LAG, vcov = vcovHAC(Reg5LAG))
+Reg6LHAC <- coeftest(Reg6LAG, vcov = vcovHAC(Reg6LAG))
+
+summary(Reg5LAG)
+
+stargazer(Reg1LHAC, Reg2LHAC, Reg3LHAC, Reg4LHAC, Reg5LHAC, Reg6LHAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/EDHAC1LAG.tex")
+```
+
+
+
+
+
+Now the same process for six regressions in which the variables are linked seven periods.
+
+First, we lag the variables:
+```{r}
+WLED1 <- LagED %>% dplyr::mutate(WLAgas = dplyr::lag(LLAgas, n=7, default = NA)) %>% as.data.frame
+
+WLED2<- WLED1 %>% dplyr::mutate(WLEDpop = dplyr::lag(LLEDpop, n=7, default = NA)) %>% as.data.frame
+
+WLED3<- WLED2 %>% dplyr::mutate(WLCypop = dplyr::lag(LLCypop, n=7, default = NA)) %>% as.data.frame
+
+WLED4<- WLED3 %>% dplyr::mutate(WLWTpop = dplyr::lag(LLWTpop, n=7, default = NA)) %>% as.data.frame
+
+WLED5<- WLED4 %>% dplyr::mutate(WLETHpop = dplyr::lag(LLETHpop, n=7, default = NA)) %>% as.data.frame
+
+WLED6<- WLED5 %>% dplyr::mutate(WLETHvol = dplyr::lag(LLETHvol, n=7, default = NA)) %>% as.data.frame
+
+
+
+WLED <- WLED6 %>% slice(8:695)
+
+```
+
+
+Then we make six regressions with explanatory variables which are lagged seven periods (seven days).
+
+```{r}
+Reg1WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLEDpop+WLED$WLETHpop)
+
+Reg2WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLEDpop+ WLED$WLETHvol)
+
+Reg3WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLCypop+WLED$WLETHpop)
+
+Reg4WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLCypop+ WLED$WLETHvol)
+
+Reg5WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLWTpop+WLED$WLETHpop)
+
+Reg6WL <- lm(WLED$LWT~WLED$WLAgas+WLED$WLWTpop+ WLED$WLETHvol)
+
+#HAC
+Reg1WLHAC <- coeftest(Reg1WL, vcov = vcovHAC(Reg1WL))
+Reg2WLHAC <- coeftest(Reg2WL, vcov = vcovHAC(Reg2WL))
+Reg3WLHAC <- coeftest(Reg3WL, vcov = vcovHAC(Reg3WL))
+Reg4WLHAC <- coeftest(Reg4WL, vcov = vcovHAC(Reg4WL))
+Reg5WLHAC <- coeftest(Reg5WL, vcov = vcovHAC(Reg5WL))
+Reg6WLHAC <- coeftest(Reg6WL, vcov = vcovHAC(Reg6WL))
+
+stargazer(Reg1WLHAC, Reg2WLHAC, Reg3WLHAC, Reg4WLHAC, Reg5WLHAC, Reg6WLHAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/EDHAC7LAG.tex")
+
+``` 
+
+
+
+Finally, I create and analyze a VAR model. 
+
+To not overcomplicate this analysis, I chose the most intuitive explanatory variables to represent their mechanisms. For transaction fees, I use averages gas fees (Agas). For the hiding mechanism, wash trading popularity. For the sentiment mechanisms, I use Ethereum popularity.
+
+It is important for VAR models to check stationarity first. The normal (non-log) variables are I(1), that is, they are not stationary in levels but stationary in the first difference.
+
+However, the log variables are stationary, and therefore, we will run a VAR model including these variables.
+
+Stationary tests:
+```{r}
+VARED <- subset(EDCOR, select = -c(TRENDED, TRENDWT, TRADVOL))
+view(VARED)
+adf.test(VARED$WT)
+adf.test(VARED$AGas)
+adf.test(VARED$CYPOP)
+adf.test(VARED$TRENDETH)
+
+kpss.test(VARED$WT)
+kpss.test(VARED$AGas)
+kpss.test(VARED$CYPOP)
+kpss.test(VARED$TRENDETH)
+
+LOGVAR = data.frame(LWT=LWT,LAgas=LAgas, LWTpop=LWTpop, LETHpop=LETHpop)
+adf.test(LOGVAR$LWT)
+adf.test(LOGVAR$LAgas)
+adf.test(LOGVAR$LCypop)
+adf.test(LOGVAR$LETHpop)
+
+kpss.test(LOGVAR$LWT)
+kpss.test(LOGVAR$LAgas)
+kpss.test(LOGVAR$LCypop)
+kpss.test(LOGVAR$LETHpop)
+```
+
+After selecting the variables and checking the stationarity of the variables, we select the optimal lag. 
+
+```{r}
+EDLAG <- VARselect(LOGVAR, lag.max = 12, type = "const")
+EDLAG
+
+```
+
+I find that 10 lags is optimal.
+
+Now we estimate the VAR model.
+
+```{r}
+VARModel <- VAR(LOGVAR, p= 10, type="const", season = NULL, exog = NULL)
+xtable(VARModel$varresult$LWT)
+```
+
+Now we can run some diagnostics to test the model.
+```{r}
+#AUTOCORRELATION 
+SerialED <- serial.test(VARModel, lags.pt = 12, type = "PT.asymptotic")
+SerialED
+
+#Result depends on how many lags you put in, but I will use 12 lags arbitrarily. 
+
+#CONDITIONAL HETEROSKEDASTICITY 
+ARCHED <- arch.test(VARModel, lags.multi = 15, multivariate.only = TRUE)
+ARCHED
+
+# The residuals in the model seem conditional heteroskedastic
+
+#NORMALITY TESTS
+NORMED <- normality.test(VARModel, multivariate.only = TRUE)
+NORMED
+
+#Stability tests
+#root test
+print(roots(VAR(LOGVAR, p=2), modulus = TRUE))
+ 
+#Structural break test 
+
+STABED <- stability(VAR(LOGVAR, p=2), type = "OLS-CUSUM")
+plot(STABED)
+```
+
+Next, we test for Granger causality:
+```{r}
+Granger1<-granger_causality(VARModel)
+```
+
+Finally, we can make the impulse response function graphs:
+```{r}
+EDWASHTF <- irf(VARModel, impulse = "LAgas", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(EDWASHTF, ylab = "Log(WT)", main = "Log transaction fee shock to Wash trading volume (ED)")
+
+EDWASHCY <- irf(VARModel, impulse = "LWTpop", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(EDWASHCY, ylab = "Log(WT)", main = "Log wash trading popularity shock to Wash trading volume (ED)")
+
+EDWASHETHPOP <- irf(VARModel, impulse = "LETHpop", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(EDWASHETHPOP, ylab = "Log(WT)", main = "Log ethereum popularity shock to Wash trading volume (ED)")
+
+```

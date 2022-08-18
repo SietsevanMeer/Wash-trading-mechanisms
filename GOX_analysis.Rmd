@@ -1,0 +1,492 @@
+---
+title: "Mt.Gox analysis"
+author: "Sietse"
+date: "2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+#1 libraries
+
+First, we load in the libraries needed for this project.
+
+```{r}
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(lubridate)
+library(zoo)
+library(data.table)
+library(qqplotr)
+library(VARtests)
+library(tidyr)
+library(remotes)
+library(olsrr)
+library(het.test)
+library(TSA)
+library(lmtest)
+library(padr)
+library(sandwich)
+library(xtable)
+library(knitr)
+library(vars)
+library(Hmisc)
+library(xtable)
+library(car)
+library(psych)
+library(pander)
+library(ggpubr)
+library(tidyverse)
+library(cowplot)
+library(gridExtra)
+library(stargazer)
+library(tseries)
+library(urca)
+library(ggthemes)
+library(bruceR)
+library(forecast)
+library(deSolve)
+library(tsDyn)
+library(apaTables)
+```
+
+
+#2. Data
+
+Let us load in the daily wash trading volume.
+For this, one needs the "complete_edge_v2.csv" which I made earlier in the prewash_file. 
+I recommend however to go to start at the shortcut, because loading the complete_edge_v2.csv takes a long time. Indeed, the shortcut file is downsized as I filtered only the wash trades (self-trades), aggregated the volume to daily data, and filled up the N/A's. 
+
+So the original data input is:
+```{r}
+DataMtGox <-  read.csv("complete_edge_v2.csv")
+``` 
+
+Filter rows such that trader id both sides is the same. The new dataset represent the wash trading transactions.
+```{r}
+Duplicatedata <- DataMtGox %>% filter(Source == Target, na.rm=TRUE)
+```
+
+Check whether there are NAs
+```{r}
+OmitNA <- na.omit(NumericMtGox)
+OmitDuplicate <- OmitNA %>% filter(NumericSource == NumericTarget, na.rm=TRUE)
+``` 
+There are no N/A transactions 
+
+
+Now we aggregate the transactions. That is, I sum all the Bitcoins in the wash trading transactions on a daily basis such that I end up with a time series which I call the wash trading volume.  
+
+```{r}
+Duplicatedata$Date2 <- as.Date(Duplicatedata$Date)
+Aggregate <-aggregate(Bitcoins~Date2, data=Duplicatedata, FUN=sum)
+``` 
+
+Now I fill up the dataset with N/A if there is no wash trading volume detected on that date.
+```{r}
+Aggregate2 <- pad(Aggregate)
+``` 
+
+Now, I replace the N/A values with zero and I have my final wash trading volume
+```{r}
+Aggregate2[is.na(Aggregate2)] <- 0
+write.csv(Aggregate2, "Aggregate2shortcut.csv", row.names = FALSE)
+```
+
+One can also skip the complete_edge_v2.csv load, filtering, aggregation and padding by taking the following shortcut.
+```{r}
+Aggregate2 <- read.csv("Aggregate2shortcut.csv")
+``` 
+
+I visualised the wash trading volume over time, this is similar to the wash trading volume found by Aloosh and Li (2019)
+```{r}
+p1<- ggplot(Aggregate2,aes(x=Date2, y=Bitcoins))+geom_line() +  labs(
+    title = "Bitcoin wash trading volume on Mt. Gox",
+    subtitle = "Wash trading volume in Bitcoin, 26/06/2011 - 20/05/2013",
+    caption = "Data from the leaked Mt. Gox datafile, see Chen et al. (2019).",
+    x = "Date",
+    y = "Bitcoin"
+  )
+
+p2<- p1 + theme(axis.title = element_text(size = 15))
+p2 + theme_classic(base_size = 15)
+ggsave("Wash trading Mt. Gox over time.png")
+
+p1<- ggplot(GOXDF,aes(x=Date, y=LATF))+geom_line() +  labs(
+    title = "Bitcoin wash trading volume on Mt. Gox",
+    subtitle = "Wash trading volume in Bitcoin, 26/06/2011 - 20/05/2013",
+    caption = "Data from the leaked Mt. Gox datafile, see Chen et al. (2019).",
+    x = "Date",
+    y = "Bitcoin"
+  )
+p1
+``` 
+
+
+
+
+Then, we can load in the data regarding the explanatory variables (mechanisms)
+
+I start of with the average gas fee, representing the transaction fees mechanism.
+
+```{r}
+Amounttransactions<- read.csv("BCHAIN-Number transactions confirmed.csv")
+Totaltransactionfee<- read.csv("BCHAIN-total transaction fee.csv")
+
+Amountslice <- Amounttransactions %>% slice(3259:3953)
+Amountslice$Date2 <- as.Date(Amountslice$Date)
+ggplot(Amountslice,aes(x=Date2, y= Value)) + geom_line()
+
+Totaltransslice <- Totaltransactionfee %>% slice(3259:3953)
+Totaltransslice$Date2 <- as.Date(Totaltransslice$Date)
+ggplot(Totaltransslice,aes(x=Date2, y= Value)) + geom_line()
+
+Totaltransslice$ATF <- (Totaltransslice$Value)/(Amountslice$Value)
+```
+
+
+
+
+Now let us load in the data for the explanatory variables which represent the hiding mechanism.
+All three datasets are Google Trends proxies. One can replicate the csv files using the GT_prep file.
+
+Regarding the variables:
+DailyGOXtrend is Mt.Gox popularity.
+DailyCybercrimetrend is the cybercrime popularity.
+
+```{r}
+DailyGOXTrend <- read.csv("DailyGoxTrend.csv")
+DGOXTrendslice <- DailyGOXTrend %>% slice(1:695)
+
+StationaryGOX <- adf.test(DGOXTrendslice$est_hits)
+StationaryGOX
+```
+
+Popularity Cybercrime
+```{r}
+DailyCybercrimetrend <- read.csv("DailyCybercrimeTrend.csv") %>% slice(1:695)
+```
+
+
+Finally, let us load in the data for the explanatory variables which represent the sentiment mechanism. 
+
+Regarding the variables:
+DailyBitcoinTrend stands for Bitcoin popularity.
+Bitcoinvolume stands for Bitcoin trading volume.
+
+Bitcoin popularity Google trends
+```{r}
+DailyBitcoinTrend <- read.csv("DailyBitcoinTrend.csv")
+DBitcoinTrendDataslice <- DailyBitcoinTrend %>% slice(1:695) 
+
+StationaryBitcoin <- adf.test(DBitcoinTrendDataslice$est_hits)
+StationaryBitcoin
+
+```
+
+Bitcoin trading volume
+```{r}
+Bitcoinvolume <- read.csv("BitcoinvolBitcoinity.csv")
+Bitcoinvolume[is.na(Bitcoinvolume)] <- 0
+
+Bitcoinvolume$volume <- Bitcoinvolume$bitfinex + Bitcoinvolume$bitstamp + Bitcoinvolume$btcchina + Bitcoinvolume$coinbase + Bitcoinvolume$huobi + Bitcoinvolume$kraken + Bitcoinvolume$lakebtc + Bitcoinvolume$mtgox + Bitcoinvolume$okcoin + Bitcoinvolume$others
+
+
+Bitcoinvolumeslice <- Bitcoinvolume %>% slice (345:1039)
+```
+
+We can now combine the wash trading volumes and the explanatory variables in one large dataset.
+Note that I also make a log variables, which are the power-transformed variables, such that they are ready for linear regression analyses.
+
+```{r}
+GOXDF <- Aggregate2
+names(GOXDF)[names(GOXDF) == "Bitcoins"] <- "WT"
+names(GOXDF)[names(GOXDF) == "Date2"] <- "Date"
+
+GOXDF$ATF <- Totaltransslice$ATF
+GOXDF$GOXpop <- DGOXTrendslice$est_hits
+GOXDF$Cypop <- DailyCybercrimetrend$est_hits
+GOXDF$BTCpop <- DBitcoinTrendDataslice$est_hits
+GOXDF$BTCvol <- Bitcoinvolumeslice$volume
+
+GOXDF$LWT <- log(GOXDF$WT +1)
+GOXDF$LATF <- log(GOXDF$ATF +1)
+GOXDF$LGOXpop <- log(GOXDF$GOXpop +1)
+GOXDF$LCypop <- log(GOXDF$Cypop + 1)
+GOXDF$LBTCpop <- log(GOXDF$BTCpop + 1)
+GOXDF$LBTCvol <- log(GOXDF$BTCvol + 1)
+```
+
+Plots:
+
+Transaction fee plot
+```{r}
+plotTRANS<- ggplot(GOXDF,aes(x=Date, y=ATF))+geom_line() +  labs(
+    title = "Average transaction fee on the Bitcoin blockchain",
+    subtitle = "Average Bitcoin transaction fee from 26/06/2011 - 20/05/2013",
+    caption = "Data from data.nasdaq.com",
+    x = "Date",
+    y = "Average transaction fee (BTC)"
+  )
+
+plotTRANS + theme_classic(base_size = 15)
+ggsave("BTCTRANSFEE.png")
+
+```
+
+Cybercrime popularity plot
+```{r}
+plotCY<- ggplot(GOXDF,aes(x=Date, y=Cypop))+geom_line() +  labs(
+    title = "Cybercrimepopularity estimated using Google Trends",
+    subtitle = "Relative Google trends estimates of the keyword Cybercrime from 26/06/2011 - 20/05/2013, (100 = highest search voume)",
+    caption = "Data from Trends.google.com",
+    x = "Date",
+    y = "Cybercrime popularity"
+  )
+
+plotCY + theme_classic(base_size = 15)
+ggsave("CYBPOP.png")
+```
+
+Bitcoin trading volume plot
+```{r}
+plotVOL<- ggplot(GOXDF,aes(x=Date, y=BTCvol))+geom_line() +  labs(
+    title = "Bitcoin trading volume",
+    subtitle = "Bitcoin trading volume from 26/06/2011 - 20/05/2013",
+    caption = "Data from Data.bitcoinity.org",
+    x = "Date",
+    y = "Bitcoin trading volume (BTC)"
+    )
+
+plotVOL + theme_classic(base_size = 15)
+ggsave("BITVOL.png")
+```
+
+
+
+
+
+#3. Analysis
+Now we can perform the analyses. First, we start with the correlation analysis, then the multiple linear regressions, and finally the VAR model.
+
+The correlation analysis:
+```{r}
+GOXCOR <- subset(GOXDF, select = -c(Date, LWT, LATF, LGOXpop, LCypop, LBTCpop, LBTCvol))
+
+mcorGOX<-round(cor(GOXCOR, method = "kendall"),2)
+upperGOX<-mcorGOX
+upperGOX[upper.tri(mcorGOX)]<-""
+upperGOX<-as.data.frame(upperGOX)
+upperGOX
+print(xtable(upperGOX), type="latex")
+```
+
+
+
+The multiple regression analysis section contains quite some code. Mainly because I also made regressions including lagged variables.
+
+I find that the linear regression model contains extreme values, heteroskedasticity, non-linearity and non-normality. Therefore, I power-transformed the variables. I will use the log variables in the further regressions.
+
+I start with the four regressions without lag:
+
+```{r}
+
+Reg1 <- lm(GOXDF$LWT~GOXDF$LATF+GOXDF$LGOXpop+GOXDF$LBTCpop)
+
+Reg2 <- lm(GOXDF$LWT~GOXDF$LATF+GOXDF$LGOXpop+GOXDF$LBTCvol)
+
+Reg3 <- lm(GOXDF$LWT~GOXDF$LATF+GOXDF$LCypop+GOXDF$LBTCpop)
+
+Reg4 <- lm(GOXDF$LWT~GOXDF$LATF+GOXDF$LCypop+GOXDF$LBTCvol)
+
+summary(Reg4)
+ols_test_normality(Reg4)
+
+LReg1HAC <- coeftest(Reg1, vcov = vcovHAC(Reg1))
+LReg2HAC <- coeftest(Reg2, vcov = vcovHAC(Reg2))
+LReg3HAC <- coeftest(Reg3, vcov = vcovHAC(Reg3))
+LReg4HAC <- coeftest(Reg4, vcov = vcovHAC(Reg4))
+
+
+stargazer(LReg1HAC, LReg2HAC, LReg3HAC, LReg4HAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/GOXregNOLAGHAC.tex")
+
+#Diagnostic tests and model fit
+par(mfrow = c(2,2))
+plot(Reg4)
+durbinWatsonTest(Reg4)
+summary(Reg4)
+```
+
+Now I will make four similar regressions, but in these regressions, the explanatory variable is lagged by one period.
+
+First, I lag the variables.
+```{r}
+GOXDF1<- GOXDF %>% dplyr::mutate(LLATF = dplyr::lag(LATF, n=1, default = NA)) %>% as.data.frame
+
+
+GOXDF2<- GOXDF1 %>% dplyr::mutate(LLGOXpop = dplyr::lag(LGOXpop, n=1, default = NA)) %>% as.data.frame
+
+
+GOXDF3<- GOXDF2 %>% dplyr::mutate(LLCypop = dplyr::lag(LCypop, n=1, default = NA)) %>% as.data.frame
+
+
+GOXDF4<- GOXDF3 %>% dplyr::mutate(LLBTCpop = dplyr::lag(LBTCpop, n=1, default = NA)) %>% as.data.frame
+
+
+GOXDF5<- GOXDF4 %>% dplyr::mutate(LLBTCvol = dplyr::lag(LBTCvol, n=1, default = NA)) %>% as.data.frame
+
+GOXDF6<- GOXDF5 %>% dplyr::mutate(LLWT = dplyr::lag(LWT, n=1, default = NA)) %>% as.data.frame
+
+LGOXDF <- GOXDF6 %>% slice(2:695)
+```
+
+Then we make new regressions with explanatory variables which are lagged one period (one day).
+
+```{r}
+
+Reg1L <- lm(LGOXDF$LWT~LGOXDF$LLATF+LGOXDF$LLGOXpop+LGOXDF$LLBTCpop)
+
+Reg2L <- lm(LGOXDF$LWT~LGOXDF$LLATF+LGOXDF$LLGOXpop+LGOXDF$LLBTCvol)
+
+Reg3L <- lm(LGOXDF$LWT~LGOXDF$LLATF+LGOXDF$LLCypop+LGOXDF$LLBTCpop)
+
+Reg4L <- lm(LGOXDF$LWT~LGOXDF$LLATF+LGOXDF$LLCypop+LGOXDF$LLBTCvol)
+
+#HAC
+Reg1SHAC <- coeftest(Reg1L, vcov = vcovHAC(Reg1L))
+Reg2SHAC <- coeftest(Reg2L, vcov = vcovHAC(Reg2L))
+Reg3SHAC <- coeftest(Reg3L, vcov = vcovHAC(Reg3L))
+Reg4SHAC <- coeftest(Reg4L, vcov = vcovHAC(Reg4L))
+
+stargazer(Reg1SHAC, Reg2SHAC, Reg3SHAC, Reg4SHAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/HAC1LAGS.tex")
+```
+
+
+
+Now the same process for four regressions in which the variables are linked seven periods.
+
+First, we lag the variables:
+
+```{r}
+GOXDF11<- LGOXDF %>% dplyr::mutate(WLATF = dplyr::lag(LLATF, n=7, default = NA)) %>% as.data.frame
+
+
+GOXDF12<- GOXDF11 %>% dplyr::mutate(WLGOXpop = dplyr::lag(LLGOXpop, n=7, default = NA)) %>% as.data.frame
+
+
+GOXDF13<- GOXDF12 %>% dplyr::mutate(WLCypop = dplyr::lag(LLCypop, n=7, default = NA)) %>% as.data.frame
+
+GOXDF14<- GOXDF13 %>% dplyr::mutate(WLBTCpop = dplyr::lag(LLBTCpop, n=7, default = NA)) %>% as.data.frame
+
+GOXDF15<- GOXDF14 %>% dplyr::mutate(WLBTCvol = dplyr::lag(LLBTCvol, n=7, default = NA)) %>% as.data.frame
+
+
+WLGOXDF <- GOXDF15 %>% slice(8:695)
+```
+
+
+
+Then we make four regressions with explanatory variables which are lagged seven periods (seven days).
+
+```{r}
+
+Reg1WL <- lm(WLGOXDF$LWT~WLGOXDF$WLATF+WLGOXDF$WLGOXpop+WLGOXDF$WLBTCpop)
+
+Reg2WL <- lm(WLGOXDF$LWT~WLGOXDF$WLATF+WLGOXDF$WLGOXpop+ WLGOXDF$WLBTCvol)
+
+Reg3WL <- lm(WLGOXDF$LWT~WLGOXDF$WLATF+WLGOXDF$WLCypop+WLGOXDF$WLBTCpop)
+
+Reg4WL <- lm(WLGOXDF$LWT~WLGOXDF$WLATF+WLGOXDF$WLCypop+ WLGOXDF$WLBTCvol)
+
+Reg1WSHAC <- coeftest(Reg1WL, vcov = vcovHAC(Reg1WL))
+Reg2WSHAC <- coeftest(Reg2WL, vcov = vcovHAC(Reg2WL))
+Reg3WSHAC <- coeftest(Reg3WL, vcov = vcovHAC(Reg3WL))
+Reg4WSHAC <- coeftest(Reg4WL, vcov = vcovHAC(Reg4WL))
+
+
+stargazer(Reg1WSHAC, Reg2WSHAC, Reg3WSHAC, Reg4WSHAC, type = "text", out = "C:/users/chess/documents/Thesis_Master/7LAGHAC.tex")
+``` 
+
+
+
+
+
+Finally, I create and analyze a VAR model. 
+
+To not overcomplicate this analysis, I chose the most intuitive explanatory variables to represent their mechanisms. For transaction fees, I use averages transaction fee (ATF). For the hiding mechanism, cybercrime popularity (as wash trading popularity was not possible). For the sentiment mechanisms, I use Bitcoin popularity.
+
+It is important for VAR models to check stationarity first. The normal (non-log) variables are I(1), that is, they are not stationary in levels but stationary in the first difference.
+
+However, the log variables are stationary, and therefore, we will run a VAR model including these variables.
+
+Stationary tests:
+
+```{r}
+adf.test{GOXDF$WT}
+kpss.test(GOXDF$WT)
+
+adf.test{GOXDF$LWT}
+kpss.test(GOXDF$LWT)
+```
+
+After selecting the variables and checking the stationarity of the variables, we select the optimal lag.
+```{r}
+GOXLOG <- subset(GOXDF, select= -c(WT, Date, ATF, GOXpop, Cypop, BTCpop, BTCvol, LGOXpop, LBTCvol))
+MtGoxLAG <- VARselect(GOXLOG, lag.max = 12, type = "const")
+MtGoxLAG
+```
+I find that 3 lags is optimal.
+
+
+
+Now I estimate the VAR model.
+
+```{r}
+Varoutput <- VAR(GOXLOG, p=5, type="const", season = NULL, exog = NULL)
+summary(Varoutput)
+xtable(Varoutput$varresult$LWT)
+```
+
+Now we can run some diagnostics to test the model.
+```{r}
+#AUTOCORRELATION 
+SerialGOX <- serial.test(Varoutput, lags.pt = 12, type = "PT.asymptotic")
+SerialGOX
+
+#CONDITIONAL HETEROSKEDASTICITY
+ARCHGOX <- arch.test(Varoutput, lags.multi = 12, multivariate.only = TRUE)
+ARCHGOX
+ARCHGOX2 <- archBootTest(Varoutput, h=6)
+  
+#NORMALITY TESTS
+NORMGOX <- normality.test(Varoutput, multivariate.only = TRUE)
+NORMGOX
+
+#STABILITY TESTS
+#ROOTS TEST 
+roots(Varoutput, modulus = TRUE)
+
+#STRUCTURAL BREAKS TEST
+STABGOX <- stability(Varoutput, type = "OLS-CUSUM")
+plot(STABGOX)
+```
+
+
+Next, we test for Granger causality:
+```{r}
+Granger1<-granger_causality(Varoutput)
+```
+
+Finally, we can make the impulse response function graphs:
+
+```{r}
+WASHTF <- irf(Varoutput, impulse = "LATF", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(WASHTF, ylab = "LWT", main = "Transaction fee shock to wash trading volume")
+
+WASHCY <- irf(Varoutput, impulse = "LCypop", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(WASHCY, ylab = "LWT", main = "Cybercrime popularity shock to wash trading volume")
+
+WASHBTCVOL <- irf(Varoutput, impulse = "LBTCpop", response = "LWT", n.ahead = 20, boot = TRUE)
+plot(WASHBTCVOL, ylab = "WT", main = "Bitcoin popularity shock to wash trading volume")
+```

@@ -1,0 +1,757 @@
+---
+title: "Daily Google Trends"
+author: "Sietse"
+date: "1-5-2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this file, I demonstrate how I found the daily Google Trends estimates.
+
+First, we load in the libraries
+```{r}
+library(gtrendsR)
+library(tidyverse)
+library(lubridate)
+```
+
+Now follows the code to estimate the daily Google Trends popularity.
+
+
+Bitcoin popularity for IDEX
+```{r}
+get_daily_gtrendBTCIDEX <- function(keyword =('Bitcoin'), geo = '', from = '2017-10-16', to = '2020-05-04') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendBTCIDEX(keyword = c('Bitcoin'), geo = '', from = '2017-10-16', to = '2020-05-04')
+DBitcoinTrendDataBTCIDEXslice <- DailyBitcoinTrendData %>% slice(1:932) 
+View(DBitcoinTrendDataBTCIDEXslice)
+```
+
+```{r}
+write.csv(DBitcoinTrendDataBTCIDEXslice,"DailyTrendBTCIDEX.csv", row.names = FALSE)
+```
+
+
+
+IDEX popularity for IDEX
+```{r}
+get_daily_gtrendIDEX <- function(keyword =('IDEX'), geo = '', from = '2017-10-16', to = '2020-05-04') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendIDEX(keyword = c('IDEX'), geo = '', from = '2017-10-16', to = '2020-05-04')
+DBitcoinTrendDataBTCIDEXslice <- DailyBitcoinTrendData %>% slice(1:932) 
+View(DBitcoinTrendDataBTCIDEXslice)
+```
+
+```{r}
+write.csv(DBitcoinTrendDataBTCIDEXslice,"DailyTrendIDEXslice.csv", row.names = FALSE)
+```
+
+
+
+Ethereum popularity for IDEX
+```{r}
+get_daily_gtrendIDEXETH <- function(keyword =('Ethereum'), geo = '', from = '2017-10-16', to = '2020-05-04') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendIDEXETH(keyword = c('Ethereum'), geo = '', from = '2017-10-16', to = '2020-05-04')
+DBitcoinTrendDataIDEXETHslice <- DailyBitcoinTrendData %>% slice(1:932) 
+
+write.csv(DBitcoinTrendDataIDEXETHslice,"DailyTrendIDEXETHslice.csv", row.names = FALSE)
+```
+
+
+Wash trading popularity for IDEX
+```{r}
+get_daily_gtrendIDEXWT <- function(keyword =('Wash trading'), geo = '', from = '2017-10-16', to = '2020-05-04') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendIDEXWT(keyword = c('Wash trading'), geo = '', from = '2017-10-16', to = '2020-05-04')
+DBitcoinTrendDataIDEXWTslice <- DailyBitcoinTrendData %>% slice(1:932) 
+
+write.csv(DBitcoinTrendDataIDEXWTslice,"DailyTrendIDEXWTslice.csv", row.names = FALSE)
+```
+
+
+Files left (.csv):
+DailyTrendBTCIDEX.csv
+DailyTrendIDEXslice.csv
+DailyTrendIDEXETHslice.csv
+DailyTrendIDEXWTslice.csv
+
+
+
+Cybercrime popularity for IDEX
+```{r}
+get_daily_gtrendIDEXCypop <- function(keyword =('Cybercrime'), geo = '', from = '2017-10-16', to = '2020-05-04') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendIDEXCypop(keyword = c('Cyber crime'), geo = '', from = '2017-10-16', to = '2020-05-04')
+DBitcoinTrendDataIDEXWTslice <- DailyBitcoinTrendData %>% slice(1:932) 
+
+write.csv(DBitcoinTrendDataIDEXWTslice,"DailyTrendIDEXCypopslice.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+EtherDelta
+
+Bitcoin popularity for EtherDelta (2017-02-10 : 2020-05-02)
+```{r}
+get_daily_gtrendBTCED <- function(keyword =('Bitcoin'), geo = '', from = '2017-02-10', to = '2020-05-02') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendBTCED(keyword = c('Bitcoin'), geo = '', from = '2017-02-10', to = '2020-05-10')
+DBitcoinTrendDataBTCEDslice <- DailyBitcoinTrendData %>% slice(1:1178) 
+View(DBitcoinTrendDataBTCEDslice)
+```
+
+```{r}
+write.csv(DBitcoinTrendDataBTCEDslice,"DailyTrendBTCED.csv", row.names = FALSE)
+```
+
+
+
+EtherDelta popularity for ED (2017-02-10 : 2020-05-02)
+```{r}
+get_daily_gtrendIDEX <- function(keyword =('EtherDelta'), geo = '', from = '2017-02-10', to = '2020-05-10') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendIDEX(keyword = c('EtherDelta'), geo = '', from = '2017-02-10', to = '2020-05-10')
+DBitcoinTrendDataEDslice <- DailyBitcoinTrendData %>% slice(1:1178) 
+View(DBitcoinTrendDataEDslice)
+```
+
+```{r}
+write.csv(DBitcoinTrendDataEDslice,"DailyTrendEDslice.csv", row.names = FALSE)
+```
+
+
+
+Ethereum popularity for ED (2017-02-10 : 2020-05-02)
+```{r}
+get_daily_gtrendEDETH <- function(keyword =('Ethereum'), geo = '', from = '2017-02-10', to = '2020-05-10') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendEDETH(keyword = c('Ethereum'), geo = '', from = '2017-02-10', to = '2020-05-10')
+DBitcoinTrendDataEDETHslice <- DailyBitcoinTrendData %>% slice(1:1178) 
+
+write.csv(DBitcoinTrendDataEDETHslice,"DailyTrendEDETHslice.csv", row.names = FALSE)
+```
+
+
+Wash trading popularity for ED
+```{r}
+get_daily_gtrendEDWT <- function(keyword =('Wash trading'), geo = '', from = '2017-02-10', to = '2020-05-10') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendEDWT(keyword = c('Wash trading'), geo = '', from = '2017-02-10', to = '2020-05-10')
+DBitcoinTrendDataEDWTslice <- DailyBitcoinTrendData %>% slice(1:1178) 
+
+write.csv(DBitcoinTrendDataEDWTslice,"DailyTrendEDWTslice.csv", row.names = FALSE)
+```
+
+
+Cybercrime popularity for ED
+```{r}
+get_daily_gtrendEDCypop <- function(keyword =('Cybercrime'), geo = '', from = '2017-02-10', to = '2020-05-10') {
+if (ymd(to) >= floor_date(Sys.Date(), 'month')) {
+to <- floor_date(ymd(to), 'month') -days(1)
+
+if (to < from) {
+stop('Specifying to date in the current month is not allowed')
+}
+}
+  
+aggregated_data <- gtrends(keyword = keyword, geo = geo, time = paste(from, to))
+  if(is.null(aggregated_data$interest_over_time)) {
+    print('There is no data in Google Trends!')
+    return()
+  }
+
+mult_m <- aggregated_data$interest_over_time %>%
+    mutate(hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    group_by(month = floor_date(date, 'month'), keyword) %>%
+    summarise(hits = sum(hits)) %>%
+    ungroup() %>%
+    mutate(ym = format(month, '%Y-%m'),
+           mult = hits / max(hits)) %>%
+    select(month, ym, keyword, mult) %>%
+    as_tibble()
+
+ pm <- tibble(s = seq(ymd(from), ymd(to), by = 'month'), 
+               e = seq(ymd(from), ymd(to), by = 'month') + months(1) - days(1))
+
+ raw_trends_m <- tibble()
+ 
+ for (i in seq(1, nrow(pm), 1)) {
+    curr <- gtrends(keyword, geo = geo, time = paste(pm$s[i], pm$e[i]))
+    if(is.null(curr$interest_over_time)) next
+    print(paste('for', pm$s[i], pm$e[i], 'retrieved', count(curr$interest_over_time), 'days of data (all keywords)'))
+    raw_trends_m <- rbind(raw_trends_m,
+                         curr$interest_over_time)
+ }
+ 
+ trend_m <- raw_trends_m %>%
+    select(date, keyword, hits) %>%
+    mutate(ym = format(date, '%Y-%m'),
+           hits = as.integer(ifelse(hits == '<1', '0', hits))) %>%
+    as_tibble()
+ 
+ trend_res <- trend_m %>%
+    left_join(mult_m) %>%
+    mutate(est_hits = hits * mult) %>%
+    select(date, keyword, est_hits) %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date))
+  
+  return(trend_res)
+
+}
+```
+
+```{r}
+DailyBitcoinTrendData <- get_daily_gtrendEDCypop(keyword = c('Cyber crime'), geo = '', from = '2017-02-10', to = '2020-05-10')
+DBitcoinTrendDataIDEXWTslice <- DailyBitcoinTrendData %>% slice(1:1178) 
+
+write.csv(DBitcoinTrendDataIDEXWTslice,"DailyTrendEDCypopslice.csv", row.names = FALSE)
+```
+
+
