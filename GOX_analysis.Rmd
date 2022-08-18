@@ -203,6 +203,7 @@ Note that I also make a log variables, which are the power-transformed variables
 GOXDF <- Aggregate2
 names(GOXDF)[names(GOXDF) == "Bitcoins"] <- "WT"
 names(GOXDF)[names(GOXDF) == "Date2"] <- "Date"
+GOXDF$Date <- as.Date(GOXDF$Date)
 
 GOXDF$ATF <- Totaltransslice$ATF
 GOXDF$GOXpop <- DGOXTrendslice$est_hits
